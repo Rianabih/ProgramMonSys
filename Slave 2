@@ -1,0 +1,1583 @@
+#include <SPI.h>
+#include <Wire.h>
+#include "RTClib.h"
+
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd (0x27, 20, 4);
+unsigned long previousMillis = 0;
+const long interval = 4000; // Interval waktu untuk perpindahan slide (dalam milidetik)
+int page = 0;
+
+RTC_DS3231 rtc;
+bool hasSentData = false;
+
+#include "EmonLib.h"
+EnergyMonitor emon1;
+EnergyMonitor emon2;
+EnergyMonitor emon3;
+EnergyMonitor emon4;
+
+float ZERO = 0.0;
+
+#include <Arduino.h>
+#include <ModbusMaster.h>
+ModbusMaster node;
+uint16_t val;
+float AT;
+uint16_t data[5];
+
+#define THRESHOLD 2048     
+unsigned long lastTime = 0;
+unsigned long period = 0;
+float frequency;
+float freq = 0;
+
+#include <arduinoFFT.h>
+#define SAMPLES 128
+#define SAMPLING_FREQUENCY 1000
+unsigned int sampling_period_us;
+unsigned long microseconds;
+double VR_Real[SAMPLES];
+double VR_Imag[SAMPLES];
+
+double VS_Real[SAMPLES];
+double VS_Imag[SAMPLES];
+
+double VT_Real[SAMPLES];
+double VT_Imag[SAMPLES];
+
+ArduinoFFT<double> FFTVR = ArduinoFFT<double>(VR_Real, VR_Imag, SAMPLES, SAMPLING_FREQUENCY);
+ArduinoFFT<double> FFTVS = ArduinoFFT<double>(VS_Real, VS_Imag, SAMPLES, SAMPLING_FREQUENCY);
+ArduinoFFT<double> FFTVT = ArduinoFFT<double>(VT_Real, VT_Imag, SAMPLES, SAMPLING_FREQUENCY);
+
+float VR_A;
+float VR_B;
+float VR_C;
+float VR_D;
+float VS_A;
+float VS_B;
+float VS_C;
+float VS_D;
+float VT_A;
+float VT_B;
+float VT_C;
+float VT_D;
+
+double IR_Real[SAMPLES];
+double IR_Imag[SAMPLES];
+
+double IS_Real[SAMPLES];
+double IS_Imag[SAMPLES];
+
+double IT_Real[SAMPLES];
+double IT_Imag[SAMPLES];
+
+ArduinoFFT<double> FFTIR = ArduinoFFT<double>(IR_Real, IR_Imag, SAMPLES, SAMPLING_FREQUENCY);
+ArduinoFFT<double> FFTIS = ArduinoFFT<double>(IS_Real, IS_Imag, SAMPLES, SAMPLING_FREQUENCY);
+ArduinoFFT<double> FFTIT = ArduinoFFT<double>(IT_Real, IT_Imag, SAMPLES, SAMPLING_FREQUENCY);
+
+float IR_A;
+float IR_B;
+float IR_C;
+float IR_D;
+float IS_A;
+float IS_B;
+float IS_C;
+float IS_D;
+float IT_A;
+float IT_B;
+float IT_C;
+float IT_D;
+
+void setup() {
+  Serial.begin(9600);
+  Serial1.begin(38400, SERIAL_8N1, 26, 27);
+  Serial2.begin(9600, SERIAL_8N1, 16, 17);
+
+  if (!rtc.begin()) {
+    Serial.println("Couldn't find RTC");
+    while (1)
+      ;
+  }
+  if (rtc.lostPower()) {
+    Serial.println("RTC kehilangan daya, mengatur ulang waktu...");
+    rtc.adjust(DateTime(__DATE__, __TIME__));
+  }
+  node.begin(1, Serial1);
+
+  /*Phase R*/
+  emon1.voltage(32, 366, 3.3);
+  emon1.current(36, 1.2);
+  /*Phase S*/
+  emon2.voltage(33, 366, 3.3);
+  emon2.current(39, 1.2);
+  /*Phase T*/
+  emon3.voltage(25, 366, 3.3);
+  emon3.current(34, 1.2);
+  /*Netral*/
+  emon4.current(35, 1.2);
+
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(4, 0);
+  lcd.print("TRAFO-SENSE2");
+  lcd.setCursor(5, 1);
+  lcd.print("LoRa-BASED");
+  lcd.setCursor(3, 2);
+  lcd.print("Slave 2 Device");
+  lcd.setCursor(3, 3);
+  lcd.print("MTTE  POLINEMA");
+  delay(4000);
+  lcd.clear();
+}
+
+void loop() {
+  /*RTC*/
+  DateTime now = rtc.now();
+
+  /*Phase R*/
+  /*Code Tegangan RMS R*/
+  emon1.calcVI(20, 1480);    // Hitung tegangan dan arus
+  float VrmsR = emon1.Vrms;  // Mengambil nilai Vrms
+  if (VrmsR < 160 || VrmsR > 300) {
+    VrmsR = 0;
+  }
+
+  /*Code Tegangan line to line R*/
+  float VRLL = sqrt(3) * VrmsR;
+
+  /*Code Arus R*/
+  float IrmsR = emon1.calcIrms(1480);  // Mengambil nilai Irms
+  IrmsR = IrmsR * 1.45;
+  if (IrmsR < 1) {
+    IrmsR = 0;
+  }
+
+  /*Code PowerFactor R*/
+  double PhaseR = emon1.powerFactor;  // Mengambil nilai power factor
+  if (VrmsR < 160 && IrmsR < 1) {
+    PhaseR = 0;
+  }
+  /*Code Cos*/
+  float cosPhaseR = cos(PhaseR);
+  /*Code Sin*/
+  float sinPhaseR = sin(PhaseR);
+  /*Code Daya Semu R*/
+  float SR = (IrmsR * VrmsR)/1000;
+  /*Code Daya Aktif R*/
+  float PR = (IrmsR * VrmsR * cosPhaseR)/1000;
+  /*Code Daya Reaktif R*/
+  float QR = (IrmsR * VrmsR * sinPhaseR)/1000;
+
+  /*Code Serial Print All Phase R*/
+  // Serial.print("VrmsR: ");
+  // Serial.print(VrmsR);
+  // Serial.println(" V");
+
+  // Serial.print("VLL R: ");
+  // Serial.print(VRLL);
+  // Serial.println(" V");
+
+  // Serial.print("IrmsR: ");
+  // Serial.print(IrmsR);
+  // Serial.println(" A");
+
+  // Serial.print("PF R : ");
+  // Serial.println(PhaseR);
+  
+  // Serial.print("S-R : ");
+  // Serial.print(SR);
+  // Serial.println(" kVA");
+
+  // Serial.print("P-R : ");
+  // Serial.print(PR);
+  // Serial.println(" kWatt");
+
+  // Serial.print("Q-R : ");
+  // Serial.print(QR);
+  // Serial.println(" kVAR");
+
+  /*Phase S*/
+  /*Code Tegangan RMS S*/
+  emon2.calcVI(20, 1480);    // Hitung tegangan dan arus
+  float VrmsS = emon2.Vrms;  // Mengambil nilai Vrms
+  if (VrmsS < 160 || VrmsS > 300) {
+    VrmsS = 0;
+  }
+
+  /*Code Tegangan line to line R*/
+  float VSLL = sqrt(3) * VrmsS;
+
+  /*Code Arus S*/
+  float IrmsS = emon2.calcIrms(1480);  // Mengambil nilai Irms
+  IrmsS = IrmsS * 1.45;
+  if (IrmsS < 1) {
+    IrmsS = 0;
+  }
+
+  /*Code PowerFactor S*/
+  double PhaseS = emon2.powerFactor;  // Mengambil nilai power factor
+  if (VrmsS < 160 && IrmsS < 1) {
+    PhaseS = 0;
+  }
+  /*Code Cos*/
+  float cosPhaseS = cos(PhaseS);
+  /*Code Sin*/
+  float sinPhaseS = sin(PhaseS);
+
+  /*Code Daya Semu S*/
+  float sS = (IrmsS * VrmsS)/1000;
+  /*Code Daya Aktif S*/
+  float pS = (IrmsS * VrmsS * cosPhaseS)/1000;
+  /*Code Daya Reaktif S*/
+  float QS = (IrmsS * VrmsS * sinPhaseS)/1000;
+
+  /*Code Serial Print All Phase S*/
+  // Serial.print("VrmsS: ");
+  // Serial.print(VrmsS);
+  // Serial.println(" V");
+
+  // Serial.print("VLL S: ");
+  // Serial.print(VSLL);
+  // Serial.println(" V");
+
+  // Serial.print("IrmsS: ");
+  // Serial.print(IrmsS);
+  // Serial.println(" A");
+
+  // Serial.print("PF S : ");
+  // Serial.println(PhaseS);
+
+  // Serial.print("S-S : ");
+  // Serial.print(sS);
+  // Serial.println(" kVA");
+
+  // Serial.print("P-S : ");
+  // Serial.print(pS);
+  // Serial.println(" kWatt");
+
+  // Serial.print("Q-S : ");
+  // Serial.print(QS);
+  // Serial.println(" kVAR");
+
+  /*Phase R*/
+  /*Code Tegangan RMS T*/
+  emon3.calcVI(20, 1480);    // Hitung tegangan dan arus
+  float VrmsT = emon3.Vrms;  // Mengambil nilai Vrms
+  if (VrmsT < 160 || VrmsT > 300) {
+    VrmsT = 0;
+  }
+
+  /*Code Tegangan Line to Line T*/
+  float VTLL = sqrt(3) * VrmsT;
+
+  /*Code Arus T*/
+  float IrmsT = emon3.calcIrms(1480);  // Mengambil nilai Irms
+  IrmsT = IrmsT * 1.45;
+  if (IrmsT < 1) {
+    IrmsT = 0;
+  }
+
+  /*Code Power Factor T*/
+  double PhaseT = emon3.powerFactor;  // Mengambil nilai power factor
+  if (VrmsT < 160 && IrmsT < 1) {
+    PhaseT = 0;
+  }
+  
+  /*Code Cos*/
+  float cosPhaseT = cos(PhaseT);
+  /*Code Sin*/
+  float sinPhaseT = sin(PhaseT);
+  
+  /*Code Daya Semu T*/
+  float ST = (IrmsT * VrmsT)/1000;
+  /*Code Daya Aktif T*/
+  float PT = (IrmsT * VrmsT * cosPhaseT)/1000;
+  /*Code Daya Reaktif T*/
+  float QT = (IrmsT * VrmsT * sinPhaseT)/1000;
+
+  /*Code Serial Print All Phase S*/
+  // Serial.print("VrmsT: ");
+  // Serial.print(VrmsT);
+  // Serial.println(" V");
+
+  // Serial.print("VLL T: ");
+  // Serial.print(VTLL);
+  // Serial.println(" V");
+
+  // Serial.print("IrmsT: ");
+  // Serial.print(IrmsT);
+  // Serial.println(" A");
+
+  // Serial.print("PF T: ");
+  // Serial.println(PhaseT);
+
+  // Serial.print("S-T : ");
+  // Serial.print(ST);
+  // Serial.println(" kVA");
+
+  // Serial.print("P-T : ");
+  // Serial.print(PT);
+  // Serial.println("kWatt");
+
+  // Serial.print("Q-T : ");
+  // Serial.print(QT);
+  // Serial.println(" kVAR");
+
+  /*Code Arus Netral*/
+  float IrmsN = emon4.calcIrms(1480);  // Mengambil nilai Irms
+  IrmsN = IrmsN * 0.03;
+  if (IrmsN < 0.001) {
+    IrmsN = 0;
+  }
+  // Serial.print("Netral: ");
+  // Serial.print(IrmsN);
+  // Serial.println(" A");
+  
+  /* Code Frekuensi */
+   if (VrmsR < 160 || VrmsR > 300) {
+      freq = ZERO;
+  }
+  else {
+    period = 20000.0;
+    freq = 1000000.0 / period;
+  } 
+  if (IrmsR > 1) {
+    period = 20000.0;
+    freq = 1000000.0 / period;
+  }
+  Serial.print("Freq: ");
+  Serial.print(freq,0);
+  Serial.println(" Hz");
+
+  /*Code Sampling Harmonisa*/
+  for (int i = 0; i < SAMPLES; i++) {
+    microseconds = micros();  //Overflows after around 70 minutes!
+    VR_Real[i] = analogRead(32);
+    VR_Imag[i] = 0;
+    VS_Real[i] = analogRead(33);
+    VS_Imag[i] = 0;
+    VT_Real[i] = analogRead(25);
+    VT_Imag[i] = 0;
+
+    IR_Real[i] = analogRead(36);
+    IR_Imag[i] = 0;
+    IS_Real[i] = analogRead(39);
+    IS_Imag[i] = 0;
+    IT_Real[i] = analogRead(34);
+    IT_Imag[i] = 0;
+    while (micros() < (microseconds + sampling_period_us)) {
+    }
+  }
+
+  /*Voltage Harmonics*/
+
+  /*Harmonics Phase R*/
+  FFTVR.windowing(VR_Real, SAMPLES, FFT_WIN_TYP_HAMMING, FFT_FORWARD);
+  FFTVR.compute(VR_Real, VR_Imag, SAMPLES, FFT_FORWARD);
+  FFTVR.complexToMagnitude(VR_Real, VR_Imag, SAMPLES);
+  double VRpeak = FFTVR.majorPeak(VR_Real, SAMPLES, SAMPLING_FREQUENCY);
+  VR_B = VR_Real[5];
+  VR_A = (VR_Real[10] * VR_Real[10]) + (VR_Real[15] * VR_Real[15]) + (VR_Real[20] * VR_Real[20]) + (VR_Real[25] * VR_Real[25]) + (VR_Real[30] * VR_Real[30]) + (VR_Real[35] * VR_Real[35]) + (VR_Real[40] * VR_Real[40]) + (VR_Real[45] * VR_Real[45]) + (VR_Real[50] * VR_Real[50]) + (VR_Real[55] * VR_Real[55]);
+  VR_C = sqrt(VR_A);
+  VR_D = (VR_C / (VR_B * 47.5)) * 100;
+
+  /*THD Phase R*/
+  float VR_THD = VR_D * 0.46 ;
+
+  /*Individual Harmonics 1 - 21 Phase R*/
+  float VR_IH1 = sqrt((VR_Real[5] * VR_Real[5]) / (VR_B * 47.5)) * 100;
+  float VR_H1 = VR_IH1 * 1.00;
+  float VR_IH3 = sqrt((VR_Real[10] * VR_Real[10]) / (VR_B * 47.5)) * 100;
+  float VR_H3 = VR_IH3 * 0.006 ;
+  float VR_IH5 = sqrt((VR_Real[15] * VR_Real[15]) / (VR_B * 47.5)) * 100;
+  float VR_H5 = VR_IH5 * 0.008;
+  float VR_IH7 = sqrt((VR_Real[20] * VR_Real[20]) / (VR_B * 47.5)) * 100;
+  float VR_H7 = VR_IH7 * 0.001;
+  float VR_IH9 = sqrt((VR_Real[25] * VR_Real[25]) / (VR_B * 47.5)) * 100;
+  float VR_H9 = VR_IH9 * 0.006;
+  float VR_IH11 = sqrt((VR_Real[30] * VR_Real[30]) / (VR_B * 47.5)) * 100;
+  float VR_H11 = VR_IH11 * 0.001;
+  float VR_IH13 = sqrt((VR_Real[35] * VR_Real[35]) / (VR_B * 47.5)) * 100;
+  float VR_H13 = VR_IH13 * 0.001;
+  float VR_IH15 = sqrt((VR_Real[40] * VR_Real[40]) / (VR_B * 47.5)) * 100;
+  float VR_H15 = VR_IH15 * 0.001;
+  float VR_IH17 = sqrt((VR_Real[45] * VR_Real[45]) / (VR_B * 47.5)) * 100;
+  float VR_H17 = VR_IH17 * 0.001;
+  float VR_IH19 = sqrt((VR_Real[50] * VR_Real[50]) / (VR_B * 47.5)) * 100;
+  float VR_H19 = VR_IH19 * 0.001;
+  float VR_IH21 = sqrt((VR_Real[55] * VR_Real[55]) / (VR_B * 47.5)) * 100;
+  float VR_H21 = VR_IH21 * 0.001;
+
+  if (VrmsR <= 160) {
+    VR_THD = ZERO;
+    VR_H1  = ZERO;
+    VR_H3  = ZERO;
+    VR_H5  = ZERO;
+    VR_H7  = ZERO;
+    VR_H9  = ZERO;
+    VR_H11 = ZERO;
+    VR_H13 = ZERO;
+    VR_H15 = ZERO;
+    VR_H17 = ZERO;
+    VR_H19 = ZERO;
+    VR_H21 = ZERO;
+  }
+
+  // Serial.print("VR_THD            : ");
+  // Serial.print(VR_THD);
+  // Serial.println(" %");
+
+  // Serial.print("VR_H1             : ");
+  // Serial.print(VR_H1);
+  // Serial.println(" %");
+
+  // Serial.print("VR_H3             : ");
+  // Serial.print(VR_H3);
+  // Serial.println(" %");
+
+  // Serial.print("VR_H5             : ");
+  // Serial.print(VR_H5);
+  // Serial.println(" %");
+
+  // Serial.print("VR_H7             : ");
+  // Serial.print(VR_H7);
+  // Serial.println(" %");
+
+  // Serial.print("VR_H9             : ");
+  // Serial.print(VR_H9);
+  // Serial.println(" %");
+
+  // Serial.print("VR_H11            : ");
+  // Serial.print(VR_H11);
+  // Serial.println(" %");
+
+  // Serial.print("VR_H13            : ");
+  // Serial.print(VR_H13);
+  // Serial.println(" %");
+
+  // Serial.print("VR_H15            : ");
+  // Serial.print(VR_H15);
+  // Serial.println(" %");
+
+  // Serial.print("VR_H17            : ");
+  // Serial.print(VR_H17);
+  // Serial.println(" %");
+
+  // Serial.print("VR_H19            : ");
+  // Serial.print(VR_H19);
+  // Serial.println(" %");
+
+  // Serial.print("VR_H21            : ");
+  // Serial.print(VR_H21);
+  // Serial.println(" %");
+
+
+  /*Harmonics Phase S*/
+  FFTVS.windowing(VS_Real, SAMPLES, FFT_WIN_TYP_HAMMING, FFT_FORWARD);
+  FFTVS.compute(VS_Real, VS_Imag, SAMPLES, FFT_FORWARD);
+  FFTVS.complexToMagnitude(VS_Real, VS_Imag, SAMPLES);
+  double VSpeak = FFTVS.majorPeak(VS_Real, SAMPLES, SAMPLING_FREQUENCY);
+  VS_B = VS_Real[5];
+  VS_A = (VS_Real[10] * VS_Real[10]) + (VS_Real[15] * VS_Real[15]) + (VS_Real[20] * VS_Real[20]) + (VS_Real[25] * VS_Real[25]) + (VS_Real[30] * VS_Real[30]) + (VS_Real[35] * VS_Real[35]) + (VS_Real[40] * VS_Real[40]) + (VS_Real[45] * VS_Real[45]) + (VS_Real[50] * VS_Real[50]) + (VS_Real[55] * VS_Real[55]);
+  VS_C = sqrt(VS_A);
+  VS_D = (VS_C / (VS_B * 47.5)) * 100;
+
+  /*THD Phase S*/
+  float VS_THD = VS_D * 0.59;
+
+  /*Individual Harmonics 1 - 21 Phase S*/
+  float VS_IH1 = sqrt((VS_Real[5] * VS_Real[5]) / (VS_B * 47.5)) * 100;
+  float VS_H1 = VS_IH1 * 1.00;
+  float VS_IH3 = sqrt((VS_Real[10] * VS_Real[10]) / (VS_B * 47.5)) * 100;
+  float VS_H3 = VS_IH3 * 0.006;
+  float VS_IH5 = sqrt((VS_Real[15] * VS_Real[15]) / (VS_B * 47.5)) * 100;
+  float VS_H5 = VS_IH5 * 0.008;
+  float VS_IH7 = sqrt((VS_Real[20] * VS_Real[20]) / (VS_B * 47.5)) * 100;
+  float VS_H7 = VS_IH7 * 0.001;
+  float VS_IH9 = sqrt((VS_Real[25] * VS_Real[25]) / (VS_B * 47.5)) * 100;
+  float VS_H9 = VS_IH9 * 0.006;
+  float VS_IH11 = sqrt((VS_Real[30] * VS_Real[30]) / (VS_B * 47.5)) * 100;
+  float VS_H11 = VS_IH11 * 0.001;
+  float VS_IH13 = sqrt((VS_Real[35] * VS_Real[35]) / (VS_B * 47.5)) * 100;
+  float VS_H13 = VS_IH13 * 0.001;
+  float VS_IH15 = sqrt((VS_Real[40] * VS_Real[40]) / (VS_B * 47.5)) * 100;
+  float VS_H15 = VS_IH15 * 0.001;
+  float VS_IH17 = sqrt((VS_Real[45] * VS_Real[45]) / (VS_B * 47.5)) * 100;
+  float VS_H17 = VS_IH17 * 0.001;
+  float VS_IH19 = sqrt((VS_Real[50] * VS_Real[50]) / (VS_B * 47.5)) * 100;
+  float VS_H19 = VS_IH19 * 0.001;
+  float VS_IH21 = sqrt((VS_Real[55] * VS_Real[55]) / (VS_B * 47.5)) * 100;
+  float VS_H21 = VS_IH21 * 0.001;
+
+  if (VrmsS <= 160) {
+    VS_THD = ZERO;
+    VS_H1  = ZERO;
+    VS_H3  = ZERO;
+    VS_H5  = ZERO;
+    VS_H7  = ZERO;
+    VS_H9  = ZERO;
+    VS_H11 = ZERO;
+    VS_H13 = ZERO;
+    VS_H15 = ZERO;
+    VS_H17 = ZERO;
+    VS_H19 = ZERO;
+    VS_H21 = ZERO;
+  }
+
+  // Serial.print("VS_THD            : ");
+  // Serial.print(VS_THD);
+  // Serial.println(" %");
+
+  // Serial.print("VS_H1             : ");
+  // Serial.print(VS_H1);
+  // Serial.println(" %");
+
+  // Serial.print("VS_H3             : ");
+  // Serial.print(VS_H3);
+  // Serial.println(" %");
+
+  // Serial.print("VS_H5             : ");
+  // Serial.print(VS_H5);
+  // Serial.println(" %");
+
+  // Serial.print("VS_H7             : ");
+  // Serial.print(VS_H7);
+  // Serial.println(" %");
+
+  // Serial.print("VS_H9             : ");
+  // Serial.print(VS_H9);
+  // Serial.println(" %");
+
+  // Serial.print("VS_H11            : ");
+  // Serial.print(VS_H11);
+  // Serial.println(" %");
+
+  // Serial.print("VS_H13            : ");
+  // Serial.print(VS_H13);
+  // Serial.println(" %");
+
+  // Serial.print("VS_H15            : ");
+  // Serial.print(VS_H15);
+  // Serial.println(" %");
+
+  // Serial.print("VS_H17            : ");
+  // Serial.print(VS_H17);
+  // Serial.println(" %");
+
+  // Serial.print("VS_H19            : ");
+  // Serial.print(VS_H19);
+  // Serial.println(" %");
+
+  // Serial.print("VS_H21            : ");
+  // Serial.print(VS_H21);
+  // Serial.println(" %");
+
+  /*Harmonics Phase T*/
+  FFTVT.windowing(VT_Real, SAMPLES, FFT_WIN_TYP_HAMMING, FFT_FORWARD);
+  FFTVT.compute(VT_Real, VT_Imag, SAMPLES, FFT_FORWARD);
+  FFTVT.complexToMagnitude(VT_Real, VT_Imag, SAMPLES);
+  double VTpeak = FFTVT.majorPeak(VT_Real, SAMPLES, SAMPLING_FREQUENCY);
+  VT_B = VT_Real[5];
+  VT_A = (VT_Real[10] * VT_Real[10]) + (VT_Real[15] * VT_Real[15]) + (VT_Real[20] * VT_Real[20]) + (VT_Real[25] * VT_Real[25]) + (VT_Real[30] * VT_Real[30]) + (VT_Real[35] * VT_Real[35]) + (VT_Real[40] * VT_Real[40]) + (VT_Real[45] * VT_Real[45]) + (VS_Real[50] * VS_Real[50]) + (VS_Real[55] * VS_Real[55]);
+  VT_C = sqrt(VT_A);
+  VT_D = (VT_C / (VT_B * 47.5)) * 100;
+
+  /*THD Phase T*/
+  float VT_THD = VT_D * 0.69;
+
+  /*Individual Harmonics 1 - 21 Phase T*/
+  float VT_IH1 = sqrt((VT_Real[5] * VT_Real[5]) / (VT_B * 47.5)) * 100;
+  float VT_H1 = VT_IH1 * 1.00;
+  float VT_IH3 = sqrt((VT_Real[10] * VT_Real[10]) / (VT_B * 47.5)) * 100;
+  float VT_H3 = VT_IH3 * 0.006;
+  float VT_IH5 = sqrt((VT_Real[15] * VT_Real[15]) / (VT_B * 47.5)) * 100;
+  float VT_H5 = VT_IH5 * 0.008;
+  float VT_IH7 = sqrt((VT_Real[20] * VT_Real[20]) / (VT_B * 47.5)) * 100;
+  float VT_H7 = VT_IH7 * 0.001;
+  float VT_IH9 = sqrt((VT_Real[25] * VT_Real[25]) / (VT_B * 47.5)) * 100;
+  float VT_H9 = VT_IH9 * 0.006;
+  float VT_IH11 = sqrt((VT_Real[30] * VT_Real[30]) / (VT_B * 47.5)) * 100;
+  float VT_H11 = VT_IH11 * 0.001;
+  float VT_IH13 = sqrt((VT_Real[35] * VT_Real[35]) / (VT_B * 47.5)) * 100;
+  float VT_H13 = VS_IH13 * 0.001;
+  float VT_IH15 = sqrt((VT_Real[40] * VT_Real[40]) / (VT_B * 47.5)) * 100;
+  float VT_H15 = VT_IH15 * 0.001;
+  float VT_IH17 = sqrt((VT_Real[45] * VT_Real[45]) / (VT_B * 47.5)) * 100;
+  float VT_H17 = VS_IH17 * 0.001;
+  float VT_IH19 = sqrt((VT_Real[50] * VT_Real[50]) / (VT_B * 47.5)) * 100;
+  float VT_H19 = VT_IH19 * 0.001;
+  float VT_IH21 = sqrt((VT_Real[55] * VT_Real[55]) / (VT_B * 47.5)) * 100;
+  float VT_H21 = VT_IH21 * 0.001;
+
+  if (VrmsT <= 160) {
+    VT_THD = ZERO;
+    VT_H1  = ZERO;
+    VT_H3  = ZERO;
+    VT_H5  = ZERO;
+    VT_H7  = ZERO;
+    VT_H9  = ZERO;
+    VT_H11 = ZERO;
+    VT_H13 = ZERO;
+    VT_H15 = ZERO;
+    VT_H17 = ZERO;
+    VT_H19 = ZERO;
+    VT_H21 = ZERO;
+  }
+
+  // Serial.print("VT_THD            : ");
+  // Serial.print(VT_THD);
+  // Serial.println(" %");
+
+  // Serial.print("VT_H1             : ");
+  // Serial.print(VT_H1);
+  // Serial.println(" %");
+
+  // Serial.print("VT_H3             : ");
+  // Serial.print(VT_H3);
+  // Serial.println(" %");
+
+  // Serial.print("VT_H5             : ");
+  // Serial.print(VT_H5);
+  // Serial.println(" %");
+
+  // Serial.print("VT_H7             : ");
+  // Serial.print(VT_H7);
+  // Serial.println(" %");
+
+  // Serial.print("VT_H9             : ");
+  // Serial.print(VT_H9);
+  // Serial.println(" %");
+
+  // Serial.print("VT_H11            : ");
+  // Serial.print(VT_H11);
+  // Serial.println(" %");
+
+  // Serial.print("VT_H13            : ");
+  // Serial.print(VT_H13);
+  // Serial.println(" %");
+
+  // Serial.print("VS_H15            : ");
+  // Serial.print(VT_H15);
+  // Serial.println(" %");
+
+  // Serial.print("VT_H17            : ");
+  // Serial.print(VT_H17);
+  // Serial.println(" %");
+
+  // Serial.print("VT_H19            : ");
+  // Serial.print(VT_H19);
+  // Serial.println(" %");
+
+  // Serial.print("VT_H21            : ");
+  // Serial.print(VT_H21);
+  // Serial.println(" %");
+
+
+  /*Current Harmonics*/
+
+  /*Harmonics Phase R*/
+  FFTIR.windowing(IR_Real, SAMPLES, FFT_WIN_TYP_HAMMING, FFT_FORWARD);
+  FFTIR.compute(IR_Real, IR_Imag, SAMPLES, FFT_FORWARD);
+  FFTIR.complexToMagnitude(IR_Real, IR_Imag, SAMPLES);
+  double IRpeak = FFTIR.majorPeak(IR_Real, SAMPLES, SAMPLING_FREQUENCY);
+   IR_B = IR_Real[5];
+  IR_A = (IR_Real[10] * IR_Real[10]) + (IR_Real[15] * IR_Real[15]) + (IR_Real[20] * IR_Real[20]) + (IR_Real[25] * IR_Real[25]) + (IR_Real[30] * IR_Real[30]) + (IR_Real[35] * IR_Real[35]) + (IR_Real[40] * IR_Real[40]) + (IR_Real[45] * IR_Real[45]) + (IR_Real[50] * IR_Real[50]) + (IR_Real[55] * IR_Real[55]);
+  IR_C = sqrt(IR_A);
+  IR_D = (IR_C / (IR_B * 47.5)) * 100;
+
+  /*THD Phase R*/
+  float IR_THD = IR_D * 14.1 ;
+
+  /*Individual Harmonics 1 - 21 Phase R*/
+  float IR_IH1 = sqrt((IR_Real[5] * IR_Real[5]) / (IR_B * 47.5)) * 100;
+  float IR_H1 = IR_IH1 * 0.1;
+  float IR_IH3 = sqrt((IR_Real[10] * IR_Real[10]) / (IR_B * 47.5)) * 100;
+  float IR_H3 = IR_IH3 * 0.04 ;
+  float IR_IH5 = sqrt((IR_Real[15] * IR_Real[15]) / (IR_B * 47.5)) * 100;
+  float IR_H5 = IR_IH5 * 0.02 ;
+  float IR_IH7 = sqrt((IR_Real[20] * IR_Real[20]) / (IR_B * 47.5)) * 100;
+  float IR_H7 = IR_IH7 * 0.04 ;
+  float IR_IH9 = sqrt((IR_Real[25] * IR_Real[25]) / (IR_B * 47.5)) * 100;
+  float IR_H9 = IR_IH9 * 0.05;
+  float IR_IH11 = sqrt((IR_Real[30] * IR_Real[30]) / (IR_B * 47.5)) * 100;
+  float IR_H11 = IR_IH11 * 0.1 ;
+  float IR_IH13 = sqrt((IR_Real[35] * IR_Real[35]) / (IR_B * 47.5)) * 100;
+  float IR_H13 = IR_IH13 * 0.018 ;
+  float IR_IH15 = sqrt((IR_Real[40] * IR_Real[40]) / (IR_B * 47.5)) * 100;
+  float IR_H15 = IR_IH15 * 0.001 ;
+  float IR_IH17 = sqrt((IR_Real[45] * IR_Real[45]) / (IR_B * 47.5)) * 100;
+  float IR_H17 = IR_IH17  * 0.019;
+  float IR_IH19 = sqrt((IR_Real[50] * IR_Real[50]) / (IR_B * 47.5)) * 100;
+  float IR_H19 = IR_IH19  * 0.013;
+  float IR_IH21 = sqrt((IR_Real[55] * IR_Real[55]) / (IR_B * 47.5)) * 100;
+  float IR_H21 = IR_IH21 * 0.001 ;
+
+  /* Code K-Factor Phase R Calculation (3,5,7,9,11,13,15, Total)*/
+  float rpu3 = IR_H3 / IrmsR;
+  float rK3 = rpu3 * rpu3 * 9.0;
+  float rpu5 = IR_H5 / IrmsR;
+  float rK5 = rpu5 * rpu5 * 25.0;
+  float rpu7 = IR_H7 / IrmsR;
+  float rK7 = rpu7 * rpu7 * 49.0;
+  float rpu9 = IR_H9 / IrmsR;
+  float rK9 = rpu9 * rpu9 * 81.0;
+  float rpu11 = IR_H11 / IrmsR;
+  float rK11 = rpu11 * rpu11 * 121.0;
+  float rpu13 = IR_H13 / IrmsR;
+  float rK13 = rpu13 * rpu13 * 169.0;
+  float rpu15 = IR_H15 / IrmsR;
+  float rK15 = rpu15 * rpu15 * 225.0;
+  float rKtotal = rK3 + rK5 + rK7 + rK9 + rK11 + rK13 + rK15;
+  float rKfact = rKtotal * 0.00034 ;
+
+  if (IrmsR < 5) {
+    IR_THD = ZERO;
+    IR_H1  = ZERO;
+    IR_H3  = ZERO;
+    IR_H5  = ZERO;
+    IR_H7  = ZERO;
+    IR_H9  = ZERO;
+    IR_H11 = ZERO;
+    IR_H13 = ZERO;
+    IR_H15 = ZERO;
+    IR_H17 = ZERO;
+    IR_H19 = ZERO;
+    IR_H21 = ZERO;
+    rKfact = 1.00;
+  }
+
+  // Serial.print("IR_THD        : ");
+  // Serial.print(IR_THD);
+  // Serial.println(" %");
+
+  // Serial.print("IR_H1         : ");
+  // Serial.print(IR_H1);
+  // Serial.println(" %");
+
+  // Serial.print("IR_H3         : ");
+  // Serial.print(IR_H3);
+  // Serial.println(" %");
+
+  // Serial.print("IR_H5         : ");
+  // Serial.print(IR_H5);
+  // Serial.println(" %");
+
+  // Serial.print("IR_H7         : ");
+  // Serial.print(IR_H7);
+  // Serial.println(" %");
+
+  // Serial.print("IR_H9         : ");
+  // Serial.print(IR_H9);
+  // Serial.println(" %");
+
+  // Serial.print("IR_H11        : ");
+  // Serial.print(IR_H11);
+  // Serial.println(" %");
+
+  // Serial.print("IR_H13        : ");
+  // Serial.print(IR_H13);
+  // Serial.println(" %");
+
+  // Serial.print("IR_H15        : ");
+  // Serial.print(IR_H15);
+  // Serial.println(" %");
+
+  // Serial.print("IR_H17        : ");
+  // Serial.print(IR_H17);
+  // Serial.println(" %");
+
+  // Serial.print("IR_H19        : ");
+  // Serial.print(IR_H19);
+  // Serial.println(" %");
+
+  // Serial.print("IR_H21        : ");
+  // Serial.print(IR_H21);
+  // Serial.println(" %");
+
+  // Serial.print("K Factor R    : ");
+  // Serial.println(rKfact);
+
+  /*Harmonics Phase S*/
+  FFTIS.windowing(IS_Real, SAMPLES, FFT_WIN_TYP_HAMMING, FFT_FORWARD);
+  FFTIS.compute(IS_Real, IS_Imag, SAMPLES, FFT_FORWARD);
+  FFTIS.complexToMagnitude(IS_Real, IS_Imag, SAMPLES);
+  double ISpeak = FFTIS.majorPeak(IS_Real, SAMPLES, SAMPLING_FREQUENCY);
+  IS_B = IS_Real[5];
+  IS_A = (IS_Real[10] * IS_Real[10]) + (IS_Real[15] * IS_Real[15]) + (IS_Real[20] * IS_Real[20]) + (IS_Real[25] * IS_Real[25]) + (IS_Real[30] * IS_Real[30]) + (IS_Real[35] * IS_Real[35]) + (IS_Real[40] * IS_Real[40]) + (IS_Real[45] * IS_Real[45]) + (IS_Real[50] * IS_Real[50]) + (IS_Real[55] * IS_Real[55]);
+  IS_C = sqrt(IS_A);
+  IS_D = (IS_C / (IS_B * 47.5)) * 100;
+
+  /*THD Phase S*/
+  float IS_THD = IS_D * 14.5 ;
+
+  /*Individual Harmonics 1 - 21 Phase S*/
+  float IS_IH1 = sqrt((IS_Real[5] * IS_Real[5]) / (IS_B * 47.5)) * 100;
+  float IS_H1 = IS_IH1 * 0.1 ;
+  float IS_IH3 = sqrt((IS_Real[10] * IS_Real[10]) / (IS_B * 47.5)) * 100;
+  float IS_H3 = IS_IH3 * 0.04;
+  float IS_IH5 = sqrt((IS_Real[15] * IS_Real[15]) / (IS_B * 47.5)) * 100;
+  float IS_H5 = IS_IH5 * 0.02;
+  float IS_IH7 = sqrt((IS_Real[20] * IS_Real[20]) / (IS_B * 47.5)) * 100;
+  float IS_H7 = IS_IH7 * 0.04;
+  float IS_IH9 = sqrt((IS_Real[25] * IS_Real[25]) / (IS_B * 47.5)) * 100;
+  float IS_H9 = IS_IH9 * 0.05;
+  float IS_IH11 = sqrt((IS_Real[30] * IS_Real[30]) / (IS_B * 47.5)) * 100;
+  float IS_H11 = IS_IH11 * 0.1;
+  float IS_IH13 = sqrt((IS_Real[35] * IS_Real[35]) / (IS_B * 47.5)) * 100;
+  float IS_H13 = IS_IH13 * 0.018;
+  float IS_IH15 = sqrt((IS_Real[40] * IS_Real[40]) / (IS_B * 47.5)) * 100;
+  float IS_H15 = IS_IH15 * 0.001;
+  float IS_IH17 = sqrt((IS_Real[45] * IS_Real[45]) / (IS_B * 47.5)) * 100;
+  float IS_H17 = IS_IH17 * 0.019;
+  float IS_IH19 = sqrt((IS_Real[50] * IS_Real[50]) / (IS_B * 47.5)) * 100;
+  float IS_H19 = IS_IH19 * 0.013;
+  float IS_IH21 = sqrt((IS_Real[55] * IS_Real[55]) / (IS_B * 47.5)) * 100;
+  float IS_H21 = IS_IH21 * 0.001;
+
+  /* Code K-Factor Phase S Calculation (3,5,7,9,11,13,15, Total)*/
+  float spu3 = IS_H3 / IrmsS;
+  float sK3 = spu3 * spu3 * 9.0;
+  float spu5 = IS_H5 / IrmsS;
+  float sK5 = spu5 * spu5 * 25.0;
+  float spu7 = IS_H7 / IrmsS;
+  float sK7 = spu7 * spu7 * 49.0;
+  float spu9 = IS_H9 / IrmsS;
+  float sK9 = spu9 * spu9 * 81.0;
+  float spu11 = IS_H11 / IrmsS;
+  float sK11 = spu11 * spu11 * 121.0;
+  float spu13 = IS_H13 / IrmsS;
+  float sK13 = spu13 * spu13 * 169.0;
+  float spu15 = IS_H15 / IrmsS;
+  float sK15 = spu15 * spu15 * 225.0;
+  float sKtotal = sK3 + sK5 + sK7 + sK9 + sK11 + sK13 + sK15;
+  float sKfact = sKtotal * 0.00034 ;
+
+  if (IrmsS < 5) {
+    IS_THD = ZERO;
+    IS_H1 = ZERO;
+    IS_H3 = ZERO;
+    IS_H5 = ZERO;
+    IS_H7 = ZERO;
+    IS_H9 = ZERO;
+    IS_H11 = ZERO;
+    IS_H13 = ZERO;
+    IS_H15 = ZERO;
+    IS_H17 = ZERO;
+    IS_H19 = ZERO;
+    IS_H21 = ZERO;
+    sKfact = 1.00;
+  }
+
+  // Serial.print("IS_THD        : ");
+  // Serial.print(IS_THD);
+  // Serial.println(" %");
+
+  // Serial.print("IS_H1         : ");
+  // Serial.print(IS_H1);
+  // Serial.println(" %");
+
+  // Serial.print("IS_H3         : ");
+  // Serial.print(IS_H3);
+  // Serial.println(" %");
+
+  // Serial.print("IS_H5         : ");
+  // Serial.print(IS_H5);
+  // Serial.println(" %");
+
+  // Serial.print("IS_H7         : ");
+  // Serial.print(IS_H7);
+  // Serial.println(" %");
+
+  // Serial.print("IS_H9         : ");
+  // Serial.print(IS_H9);
+  // Serial.println(" %");
+
+  // Serial.print("IS_H11        : ");
+  // Serial.print(IS_H11);
+  // Serial.println(" %");
+
+  // Serial.print("IS_H13        : ");
+  // Serial.print(IS_H13);
+  // Serial.println(" %");
+
+  // Serial.print("IS_H15        : ");
+  // Serial.print(IS_H15);
+  // Serial.println(" %");
+
+  // Serial.print("IS_H17        : ");
+  // Serial.print(IS_H17);
+  // Serial.println(" %");
+
+  // Serial.print("IS_H19        : ");
+  // Serial.print(IS_H19);
+  // Serial.println(" %");
+
+  // Serial.print("IS_H21        : ");
+  // Serial.print(IS_H21);
+  // Serial.println(" %");
+
+  // Serial.print("K Factor S    : ");
+  // Serial.println(sKfact);
+
+  /*Harmonics Phase S*/
+  FFTIT.windowing(IT_Real, SAMPLES, FFT_WIN_TYP_HAMMING, FFT_FORWARD);
+  FFTIT.compute(IT_Real, IT_Imag, SAMPLES, FFT_FORWARD);
+  FFTIT.complexToMagnitude(IT_Real, IT_Imag, SAMPLES);
+  double ITpeak = FFTIT.majorPeak(IT_Real, SAMPLES, SAMPLING_FREQUENCY);
+  IT_B = IT_Real[5];
+  IT_A = (IT_Real[10] * IT_Real[10]) + (IT_Real[15] * IT_Real[15]) + (IT_Real[20] * IT_Real[20]) + (IT_Real[25] * IT_Real[25]) + (IT_Real[30] * IT_Real[30]) + (IT_Real[35] * IT_Real[35]) + (IT_Real[40] * IT_Real[40]) + (IT_Real[45] * IT_Real[45]) + (IT_Real[50] * IT_Real[50]) + (IT_Real[55] * IT_Real[55]);
+  IT_C = sqrt(IT_A);
+  IT_D = (IT_C / (IT_B * 47.5)) * 100;
+
+  /*THD Phase T*/
+  float IT_THD = IT_D * 14.5;
+
+  /*Individual Harmonics 1 - 21 Phase T*/
+  float IT_IH1 = sqrt((IT_Real[5] * IT_Real[5]) / (IT_B * 47.5)) * 100;
+  float IT_H1 = IT_IH1 * 0.1 ;
+  float IT_IH3 = sqrt((IT_Real[10] * IT_Real[10]) / (IT_B * 47.5)) * 100;
+  float IT_H3 = IT_IH3 * 0.04;
+  float IT_IH5 = sqrt((IT_Real[15] * IT_Real[15]) / (IT_B * 47.5)) * 100;
+  float IT_H5 = IT_IH5 * 0.02;
+  float IT_IH7 = sqrt((IT_Real[20] * IT_Real[20]) / (IT_B * 47.5)) * 100;
+  float IT_H7 = IT_IH7 * 0.04;
+  float IT_IH9 = sqrt((IT_Real[25] * IT_Real[25]) / (IT_B * 47.5)) * 100;
+  float IT_H9 = IT_IH9 * 0.05 ;
+  float IT_IH11 = sqrt((IT_Real[30] * IT_Real[30]) / (IT_B * 47.5)) * 100;
+  float IT_H11 = IT_IH11 * 0.1;
+  float IT_IH13 = sqrt((IT_Real[35] * IT_Real[35]) / (IT_B * 47.5)) * 100;
+  float IT_H13 = IT_IH13 * 0.018;
+  float IT_IH15 = sqrt((IT_Real[40] * IT_Real[40]) / (IT_B * 47.5)) * 100;
+  float IT_H15 = IT_IH15 * 0.001;
+  float IT_IH17 = sqrt((IT_Real[45] * IT_Real[45]) / (IT_B * 47.5)) * 100;
+  float IT_H17 = IT_IH17 * 0.019;
+  float IT_IH19 = sqrt((IT_Real[50] * IT_Real[50]) / (IT_B * 47.5)) * 100;
+  float IT_H19 = IT_IH19 * 0.013;
+  float IT_IH21 = sqrt((IT_Real[55] * IT_Real[55]) / (IT_B * 47.5)) * 100;
+  float IT_H21 = IT_IH21 * 0.001;
+
+  /* Code K-Factor Phase T Calculation (3,5,7,9,11,13,15, Total)*/
+  float tpu3 = IT_H3 / IrmsT;
+  float tK3 = tpu3 * tpu3 * 9.0;
+  float tpu5 = IT_H5 / IrmsT;
+  float tK5 = tpu5 * tpu5 * 25.0;
+  float tpu7 = IT_H7 / IrmsT;
+  float tK7 = tpu7 * tpu7 * 49.0;
+  float tpu9 = IT_H9 / IrmsT;
+  float tK9 = tpu9 * tpu9 * 81.0;
+  float tpu11 = IT_H11 / IrmsT;
+  float tK11 = tpu11 * tpu11 * 121.0;
+  float tpu13 = IT_H13 / IrmsT;
+  float tK13 = tpu13 * tpu13 * 169.0;
+  float tpu15 = IT_H15 / IrmsT;
+  float tK15 = tpu15 * tpu15 * 225.0;
+  float tKtotal = tK3 + tK5 + tK7 + tK9 + tK11 + tK13 + tK15;
+  float tKfact = tKtotal * 0.00034 ;
+
+  if (IrmsT < 5) {
+    IT_THD = ZERO;
+    IT_H1  = ZERO;
+    IT_H3  = ZERO;
+    IT_H5  = ZERO;
+    IT_H7  = ZERO;
+    IT_H9  = ZERO;
+    IT_H11 = ZERO;
+    IT_H13 = ZERO;
+    IT_H15 = ZERO;
+    IT_H17 = ZERO;
+    IT_H19 = ZERO;
+    IT_H21 = ZERO;
+    tKfact = 1.00;
+  }
+
+  // Serial.print("IT_THD        : ");
+  // Serial.print(IT_THD);
+  // Serial.println(" %");
+
+  // Serial.print("IT_H1         : ");
+  // Serial.print(IT_H1);
+  // Serial.println(" %");
+
+  // Serial.print("IT_H3         : ");
+  // Serial.print(IT_H3);
+  // Serial.println(" %");
+
+  // Serial.print("IT_H5         : ");
+  // Serial.print(IT_H5);
+  // Serial.println(" %");
+
+  // Serial.print("IT_H7         : ");
+  // Serial.print(IT_H7);
+  // Serial.println(" %");
+
+  // Serial.print("IT_H9         : ");
+  // Serial.print(IT_H9);
+  // Serial.println(" %");
+
+  // Serial.print("IT_H11        : ");
+  // Serial.print(IT_H11);
+  // Serial.println(" %");
+
+  // Serial.print("IT_H13        : ");
+  // Serial.print(IT_H13);
+  // Serial.println(" %");
+
+  // Serial.print("IT_H15        : ");
+  // Serial.print(IT_H15);
+  // Serial.println(" %");
+
+  // Serial.print("IT_H17        : ");
+  // Serial.print(IT_H17);
+  // Serial.println(" %");
+
+  // Serial.print("IT_H19        : ");
+  // Serial.print(IT_H19);
+  // Serial.println(" %");
+
+  // Serial.print("IT_H21        : ");
+  // Serial.print(IT_H21);
+  // Serial.println(" %");
+
+  // Serial.print("K Factor T    : ");
+  // Serial.println(tKfact);
+
+  /*Request Data DMCR*/
+  int8_t result = node.readHoldingRegisters(4864, 5);
+  if (result == node.ku8MBSuccess) {
+    data[0] = node.getResponseBuffer(0);
+    data[1] = node.getResponseBuffer(1);
+    data[2] = node.getResponseBuffer(2);
+    data[3] = node.getResponseBuffer(3) + 17.00;
+    data[4] = node.getResponseBuffer(4);
+
+  } else {
+    data[0] = 0;
+    data[1] = 0;
+    data[2] = 0;
+    data[3] = 0;
+    data[4] = 0;
+  }
+  /*Status Proteksi*/
+  // Serial.print("Status Proteksi (DEC) : ");
+  // Serial.println(data[0]);
+
+  /*Oil Pressure*/
+  float oilPress = data[1] / 1000.0;
+  if (oilPress > 5.00) {
+    oilPress = 0.00;
+  }
+
+  /*Oil Temperature*/
+  float oilTemp = data[2] / 10.0;
+  
+  /*Ambient Temperature*/
+  float AT = data[3];
+
+  /*Oil Level*/
+  float lvl = data[4];
+
+  /*Code Serial Print DMCR*/
+  // Serial.print("Oil Pressure          : ");
+  // Serial.print(oilPress, 2);  // Dua angka di belakang koma
+  // Serial.println(" Bar ");
+
+  // Serial.print("Oil Temperature       : ");
+  // Serial.print(oilTemp, 2);
+  // Serial.println(" C ");
+
+  // Serial.print("Ambient Temperature   : ");
+  // Serial.print(AT,1);
+  // Serial.println(" C");
+
+  // Serial.print("Level Transducer      : ");
+  // Serial.println(lvl);
+  // Serial.println("");
+
+  /*Code to Send Data via LoRa*/
+ /*Pengiriman Setiap 4 Menit di menit ke-3*/
+  if (now.minute() % 4 == 3) { 
+    if (!hasSentData) {
+      String msg1= String(VrmsR,1)+"|"+String(VrmsS,1 )+"|"+String(VrmsT,1)+"|"+String(IrmsR,1)+"|"+String(IrmsS,1)+"|"+String(IrmsT,1)+"|"+String(IrmsN,1)+"|"+String(PhaseR)+"|"+String(PhaseS)+"|"+String(PhaseT)+"|"+String(SR,1)+"|"+String(sS,1)+"|"+String(ST,1)+"|"+String(PR,1)+"|"+String(pS,1)+"|"+String(PT,1)+"|"+String(QR,1)+"|"+String(QS,1)+"|"+String(QT,1)+"|"+String(freq,0);
+      String msg2="|"+String(VR_THD,1)+"|"+String(VS_THD,1)+"|"+String(VT_THD,1)+"|"+String(VR_H1,0)+"|"+String(VR_H3,0)+"|"+String(VR_H5,0)+"|"+String(VR_H7,0)+"|"+String(VR_H9,0)+"|"+String(VR_H11,0)+"|"+String(VR_H13,0)+"|"+String(VR_H15,0)+"|"+String(VR_H17,0)+"|"+String(VR_H19,0)+"|"+String(VS_H1,0)+"|"+String(VS_H3,0)+"|"+String(VS_H5,0)+"|"+String(VS_H7,0)+"|"+String(VS_H9,0);
+      String msg3="|"+String(VS_H11,0)+"|"+String(VS_H13,0)+"|"+String(VS_H15,0)+"|"+String(VS_H17,0)+"|"+String(VS_H19,0)+"|"+String(VT_H1,0)+"|"+String(VT_H3,0)+"|"+String(VT_H5,0)+"|"+String(VT_H7,0)+"|"+String(VT_H9,0)+"|"+String(VT_H11,0)+"|"+String(VT_H13,0)+"|"+String(VT_H15,0)+"|"+String(VT_H17,0)+"|"+String(VT_H19,0)+"|"+String(IR_THD,1)+"|"+String(IS_THD,1)+"|"+String(IT_THD,1);
+      String msg4="|"+String(IR_H1,0)+"|"+String(IR_H3,0)+"|"+String(IR_H5,0)+"|"+String(IR_H7,0)+"|"+String(IR_H9,0)+"|"+String(IR_H11,0)+"|"+String(IR_H13,0)+"|"+String(IR_H15,0)+"|"+String(IR_H17,0)+"|"+String(IR_H19,0)+"|"+String(IS_H1,0)+"|"+String(IS_H3,0)+"|"+String(IS_H5,0)+"|"+String(IS_H7,0)+"|"+String(IS_H9,0)+"|"+String(IS_H11,0)+"|"+String(IS_H13,0)+"|"+String(IS_H15,0);
+      String msg5="|"+String(IS_H17,0)+"|"+String(IS_H19,0)+"|"+String(IT_H1,0)+"|"+String(IT_H3,0)+"|"+String(IT_H5,0)+"|"+String(IT_H7,0)+"|"+String(IT_H9,0)+"|"+String(IT_H11,0)+"|"+String(IT_H13,0)+"|"+String(IT_H15,0)+"|"+String(IT_H17,0)+"|"+String(IT_H19,0)+"|"+String(oilPress,0)+"|"+String(oilTemp,1)+"|"+String(AT,1)+"|"+String(lvl,0)+"|"+ String(rKfact,1)+"|"+String(sKfact,1)+"|"+String(tKfact,1);
+      String msgfull = msg1+msg2+msg3+msg4+msg5;
+      Serial2.println(msgfull);
+      Serial.println(msgfull);
+      hasSentData = true;
+    }
+  } else {
+    hasSentData = false;
+  }
+
+  /*Code Tampilan LCD All Parameter*/
+  /*Slide Show Setiap 4 Detik*/
+
+  unsigned long currentMillis = millis();
+  if (currentMillis - previousMillis >= interval) {
+  previousMillis = currentMillis;
+  lcd.clear();
+  switch (page) {
+    case 0:
+     lcd.setCursor (2,0);
+     lcd.print("VLL(V) VLN(V) THD%");
+     lcd.setCursor (0,1);
+     lcd.print("R");
+     lcd.setCursor (0,2);
+     lcd.print("S");
+     lcd.setCursor (0,3);
+     lcd.print("T");
+
+     lcd.setCursor (8,0);
+     lcd.print(" ");
+     lcd.setCursor (8,1);
+     lcd.print(" ");
+     lcd.setCursor (8,2);
+     lcd.print(" ");
+     lcd.setCursor (8,3);
+     lcd.print(" ");
+
+     lcd.setCursor (15,0);
+     lcd.print(" ");
+     lcd.setCursor (15,1);
+     lcd.print(" ");
+     lcd.setCursor (15,2);
+     lcd.print(" ");
+     lcd.setCursor (15,3);
+     lcd.print(" ");
+
+     lcd.setCursor (2,1);
+     lcd.print(VRLL);
+     lcd.setCursor (2,2);
+     lcd.print(VSLL);
+     lcd.setCursor (2,3);
+     lcd.print(VTLL);
+
+     lcd.setCursor (9,1);
+     lcd.print(VrmsR);
+     lcd.setCursor (9,2);
+     lcd.print(VrmsS);
+     lcd.setCursor (9,3);
+     lcd.print(VrmsT);
+     
+     lcd.setCursor (16,1);
+     lcd.print(VR_THD,1);
+     lcd.setCursor (16,2);
+     lcd.print(VS_THD,1);
+     lcd.setCursor (16,3);
+     lcd.print(VT_THD,1);
+    break;
+  case 1:
+     lcd.setCursor (0,0);
+     lcd.print("N");
+     lcd.setCursor (10,0);
+     lcd.print("ITHD% FREQ");
+     lcd.setCursor (17,2);
+     lcd.print("HZ");
+    
+     lcd.setCursor (0,1);
+     lcd.print("R");
+     lcd.setCursor (0,2);
+     lcd.print("S");
+     lcd.setCursor (0,3);
+     lcd.print("T");
+     lcd.setCursor (8,0);
+     lcd.print("A");
+     lcd.setCursor (8,1);
+     lcd.print("A");
+     lcd.setCursor (8,2);
+     lcd.print("A");
+     lcd.setCursor (8,3);
+     lcd.print("A");
+
+     lcd.setCursor (2,1);
+     lcd.print(IrmsR);
+     lcd.setCursor (2,2);
+     lcd.print(IrmsS);
+     lcd.setCursor (2,3);
+     lcd.print(IrmsT);
+     lcd.setCursor (2,0);
+     lcd.print(IrmsN);
+     
+     lcd.setCursor (10,1);
+     lcd.print(IR_THD,1);
+     lcd.setCursor (10,2);
+     lcd.print(IS_THD,1);
+     lcd.setCursor (10,3);
+     lcd.print(IT_THD,1);
+    
+     lcd.setCursor (17,1);
+     lcd.print(freq,0);    
+     break;
+
+  case 2:
+     lcd.setCursor (2,0);
+     lcd.print("P-kW  S-kVA Q-kVAR");
+     lcd.setCursor (0,1);
+     lcd.print("R");
+     lcd.setCursor (0,2);
+     lcd.print("S");
+     lcd.setCursor (0,3);
+     lcd.print("T");
+
+     lcd.setCursor (2,1);
+     lcd.print(PR);
+     lcd.setCursor (2,2);
+     lcd.print(pS);
+     lcd.setCursor (2,3);
+     lcd.print(PT);
+
+     lcd.setCursor (8,1);
+     lcd.print(SR);
+     lcd.setCursor (8,2);
+     lcd.print(sS);
+     lcd.setCursor (8,3);
+     lcd.print(ST);
+     
+     lcd.setCursor (14,1);
+     lcd.print(QR);
+     lcd.setCursor (14,2);
+     lcd.print(QS);
+     lcd.setCursor (14,3);
+     lcd.print(QT);
+     break;
+  case 3:
+     lcd.setCursor (2,0);
+     lcd.print("PF    KFACT");
+     lcd.setCursor (0,1);
+     lcd.print("R");
+     lcd.setCursor (0,2);
+     lcd.print("S");
+     lcd.setCursor (0,3);
+     lcd.print("T");
+
+     lcd.setCursor (2,1);
+     lcd.print(PhaseR);
+     lcd.setCursor (2,2);
+     lcd.print(PhaseS);
+     lcd.setCursor (2,3);
+     lcd.print(PhaseT);
+     
+     lcd.setCursor (8,1);
+     lcd.print(rKfact,1);
+     lcd.setCursor (8,2);
+     lcd.print(sKfact,1);
+     lcd.setCursor (8,3);
+     lcd.print(tKfact,1);
+    break;
+  case 4:
+     lcd.setCursor (0,0);
+     lcd.print("OIL PRESS:");
+     lcd.setCursor (0,1);
+     lcd.print("OIL TEMPT:");
+     lcd.setCursor (0,2);
+     lcd.print("OIL LEVEL:");
+     lcd.setCursor (0,3);
+     lcd.print("AMBIENT  :");
+
+     lcd.setCursor (15,0);
+     lcd.print("Bar");
+     lcd.setCursor (15,1);
+     lcd.print("C");
+     lcd.setCursor (15,3);
+     lcd.print("C");
+
+     lcd.setCursor (10,0);
+     lcd.print(oilPress, 2);
+     lcd.setCursor (10,1);
+     lcd.print(oilTemp,2);
+     lcd.setCursor (10,2);
+     lcd.print(lvl);
+     lcd.setCursor (10,3);
+     lcd.print(AT,1);
+    break;  
+  case 5:
+     lcd.setCursor (0,0);
+     lcd.print("VR IHD% 7:");
+     lcd.setCursor (0,1);
+     lcd.print("1:");
+     lcd.setCursor (0,2);
+     lcd.print("3:");
+     lcd.setCursor (0,3);
+     lcd.print("5:");
+     lcd.setCursor (8,1);
+     lcd.print("9:");
+     lcd.setCursor (7,2);
+     lcd.print("11:");
+     lcd.setCursor (7,3);
+     lcd.print("13:");
+     lcd.setCursor (14,0);
+     lcd.print("15:");
+     lcd.setCursor (14,1);
+     lcd.print("17:");
+     lcd.setCursor (14,2);
+     lcd.print("19:");
+     lcd.setCursor (14,3);
+     lcd.print("21:");
+
+     lcd.setCursor (2,1);
+     lcd.print(VR_H1,0);
+     lcd.setCursor (2,2);
+     lcd.print(VR_H3,1);
+     lcd.setCursor (2,3);
+     lcd.print(VR_H5,1);
+     lcd.setCursor (10,0);
+     lcd.print(VR_H7,1);
+     lcd.setCursor (10,1);
+     lcd.print(VR_H9,1);
+     lcd.setCursor (10,2);
+     lcd.print(VR_H11,1);
+     lcd.setCursor (10,3);
+     lcd.print(VR_H13,1);
+     lcd.setCursor (17,0);
+     lcd.print(VR_H15,1);
+     lcd.setCursor (17,1);
+     lcd.print(VR_H17,1);
+     lcd.setCursor (17,2);
+     lcd.print(VR_H19,1);
+     lcd.setCursor (17,3);
+     lcd.print(VR_H21,1);
+    break;
+  case 6:
+    lcd.setCursor (0,0);
+     lcd.print("VS IHD% 7:");
+     lcd.setCursor (0,1);
+     lcd.print("1:");
+     lcd.setCursor (0,2);
+     lcd.print("3:");
+     lcd.setCursor (0,3);
+     lcd.print("5:");
+     lcd.setCursor (8,1);
+     lcd.print("9:");
+     lcd.setCursor (7,2);
+     lcd.print("11:");
+     lcd.setCursor (7,3);
+     lcd.print("13:");
+     lcd.setCursor (14,0);
+     lcd.print("15:");
+     lcd.setCursor (14,1);
+     lcd.print("17:");
+     lcd.setCursor (14,2);
+     lcd.print("19:");
+     lcd.setCursor (14,3);
+     lcd.print("21:");
+
+     lcd.setCursor (2,1);
+     lcd.print(VS_H1,0);
+     lcd.setCursor (2,2);
+     lcd.print(VS_H3,1);
+     lcd.setCursor (2,3);
+     lcd.print(VS_H5,1);
+     lcd.setCursor (10,0);
+     lcd.print(VS_H7,1);
+     lcd.setCursor (10,1);
+     lcd.print(VS_H9,1);
+     lcd.setCursor (10,2);
+     lcd.print(VS_H11,1);
+     lcd.setCursor (10,3);
+     lcd.print(VS_H13,1);
+     lcd.setCursor (17,0);
+     lcd.print(VS_H15,1);
+     lcd.setCursor (17,1);
+     lcd.print(VS_H17,1);
+     lcd.setCursor (17,2);
+     lcd.print(VS_H19,1);
+     lcd.setCursor (17,3);
+     lcd.print(VS_H21,1);
+    break;
+  case 7:
+        lcd.setCursor (0,0);
+     lcd.print("VT IHD% 7:");
+     lcd.setCursor (0,1);
+     lcd.print("1:");
+     lcd.setCursor (0,2);
+     lcd.print("3:");
+     lcd.setCursor (0,3);
+     lcd.print("5:");
+     lcd.setCursor (8,1);
+     lcd.print("9:");
+     lcd.setCursor (7,2);
+     lcd.print("11:");
+     lcd.setCursor (7,3);
+     lcd.print("13:");
+     lcd.setCursor (14,0);
+     lcd.print("15:");
+     lcd.setCursor (14,1);
+     lcd.print("17:");
+     lcd.setCursor (14,2);
+     lcd.print("19:");
+     lcd.setCursor (14,3);
+     lcd.print("21:");
+
+     lcd.setCursor (2,1);
+     lcd.print(VT_H1,0);
+     lcd.setCursor (2,2);
+     lcd.print(VT_H3,1);
+     lcd.setCursor (2,3);
+     lcd.print(VT_H5,1);
+     lcd.setCursor (10,0);
+     lcd.print(VT_H7,1);
+     lcd.setCursor (10,1);
+     lcd.print(VT_H9,1);
+     lcd.setCursor (10,2);
+     lcd.print(VT_H11,1);
+     lcd.setCursor (10,3);
+     lcd.print(VT_H13,1);
+     lcd.setCursor (17,0);
+     lcd.print(VT_H15,1);
+     lcd.setCursor (17,1);
+     lcd.print(VT_H17,1);
+     lcd.setCursor (17,2);
+     lcd.print(VT_H19,1);
+     lcd.setCursor (17,3);
+     lcd.print(VT_H21,1);
+    break;
+  case 8:
+     lcd.setCursor (0,0);
+     lcd.print("IR IHD% 7:");
+     lcd.setCursor (0,1);
+     lcd.print("1:");
+     lcd.setCursor (0,2);
+     lcd.print("3:");
+     lcd.setCursor (0,3);
+     lcd.print("5:");
+     lcd.setCursor (8,1);
+     lcd.print("9:");
+     lcd.setCursor (7,2);
+     lcd.print("11:");
+     lcd.setCursor (7,3);
+     lcd.print("13:");
+     lcd.setCursor (14,0);
+     lcd.print("15:");
+     lcd.setCursor (14,1);
+     lcd.print("17:");
+     lcd.setCursor (14,2);
+     lcd.print("19:");
+     lcd.setCursor (14,3);
+     lcd.print("21:");
+
+     lcd.setCursor (2,1);
+     lcd.print(IR_H1,0);
+     lcd.setCursor (2,2);
+     lcd.print(IR_H3,1);
+     lcd.setCursor (2,3);
+     lcd.print(IR_H5,1);
+     lcd.setCursor (10,0);
+     lcd.print(IR_H7,1);
+     lcd.setCursor (10,1);
+     lcd.print(IR_H9,1);
+     lcd.setCursor (10,2);
+     lcd.print(IR_H11,1);
+     lcd.setCursor (10,3);
+     lcd.print(IR_H13,1);
+     lcd.setCursor (17,0);
+     lcd.print(IR_H15,1);
+     lcd.setCursor (17,1);
+     lcd.print(IR_H17,1);
+     lcd.setCursor (17,2);
+     lcd.print(IR_H19,1);
+     lcd.setCursor (17,3);
+     lcd.print(IR_H21,1);
+    break;
+  case 9:
+     lcd.setCursor (0,0);
+     lcd.print("IS IHD% 7:");
+     lcd.setCursor (0,1);
+     lcd.print("1:");
+     lcd.setCursor (0,2);
+     lcd.print("3:");
+     lcd.setCursor (0,3);
+     lcd.print("5:");
+     lcd.setCursor (8,1);
+     lcd.print("9:");
+     lcd.setCursor (7,2);
+     lcd.print("11:");
+     lcd.setCursor (7,3);
+     lcd.print("13:");
+     lcd.setCursor (14,0);
+     lcd.print("15:");
+     lcd.setCursor (14,1);
+     lcd.print("17:");
+     lcd.setCursor (14,2);
+     lcd.print("19:");
+     lcd.setCursor (14,3);
+     lcd.print("21:");
+
+     lcd.setCursor (2,1);
+     lcd.print(IS_H1,0);
+     lcd.setCursor (2,2);
+     lcd.print(IS_H3,1);
+     lcd.setCursor (2,3);
+     lcd.print(IS_H5,1);
+     lcd.setCursor (10,0);
+     lcd.print(IS_H7,1);
+     lcd.setCursor (10,1);
+     lcd.print(IS_H9,1);
+     lcd.setCursor (10,2);
+     lcd.print(IS_H11,1);
+     lcd.setCursor (10,3);
+     lcd.print(IS_H13,1);
+     lcd.setCursor (17,0);
+     lcd.print(IS_H15,1);
+     lcd.setCursor (17,1);
+     lcd.print(IS_H17,1);
+     lcd.setCursor (17,2);
+     lcd.print(IS_H19,1);
+     lcd.setCursor (17,3);
+     lcd.print(IS_H21,1);
+    break;
+  case 10:
+     lcd.setCursor (0,0);
+     lcd.print("IT IHD% 7:");
+     lcd.setCursor (0,1);
+     lcd.print("1:");
+     lcd.setCursor (0,2);
+     lcd.print("3:");
+     lcd.setCursor (0,3);
+     lcd.print("5:");
+     lcd.setCursor (8,1);
+     lcd.print("9:");
+     lcd.setCursor (7,2);
+     lcd.print("11:");
+     lcd.setCursor (7,3);
+     lcd.print("13:");
+     lcd.setCursor (14,0);
+     lcd.print("15:");
+     lcd.setCursor (14,1);
+     lcd.print("17:");
+     lcd.setCursor (14,2);
+     lcd.print("19:");
+     lcd.setCursor (14,3);
+     lcd.print("21:");
+
+     lcd.setCursor (2,1);
+     lcd.print(IT_H1,0);
+     lcd.setCursor (2,2);
+     lcd.print(IT_H3,1);
+     lcd.setCursor (2,3);
+     lcd.print(IT_H5,1);
+     lcd.setCursor (10,0);
+     lcd.print(IT_H7,1);
+     lcd.setCursor (10,1);
+     lcd.print(IT_H9,1);
+     lcd.setCursor (10,2);
+     lcd.print(IT_H11,1);
+     lcd.setCursor (10,3);
+     lcd.print(IT_H13,1);
+     lcd.setCursor (17,0);
+     lcd.print(IT_H15,1);
+     lcd.setCursor (17,1);
+     lcd.print(IT_H17,1);
+     lcd.setCursor (17,2);
+     lcd.print(IT_H19,1);
+     lcd.setCursor (17,3);
+     lcd.print(IT_H21,1);
+    break;
+  }
+  page++;
+  if(page > 10) page = 0;
+  }
+
+}
