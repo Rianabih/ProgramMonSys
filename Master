@@ -1,0 +1,635 @@
+#include <ESPAsyncWebServer.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWiFiManager.h>
+AsyncWebServer server(80);
+DNSServer dns;
+AsyncWiFiManager wifiManager(&server, &dns);
+
+#include <PubSubClient.h>
+#include <WiFiClientSecure.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <WiFi.h>
+#include "RTClib.h"
+RTC_DS3231 rtc;
+
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd(0x27, 20, 4);
+unsigned long previousMillis = 0;
+unsigned long lastReconnectAttempt = 0;
+const long interval = 4000;  // Interval waktu untuk perpindahan slide (dalam milidetik)
+int page = 0;
+
+String data[190];
+String msg = "";
+String msg2 = "";
+bool parsing = false;
+
+// MQTT server details
+const char* mqtt_server = "bcac1e2848524450a94643bb8a6b57e6.s1.eu.hivemq.cloud";
+const char* mqtt_username = "hivemq.webclient.1716793886740";
+const char* mqtt_password = "v>Km.sXx17<G8a!2HQwJ";
+const int mqtt_port = 8883;
+
+// MQTT topics
+const char* send_mqtt_data1 = "data1";
+const char* send_mqtt_data2 = "data2";
+const char* send_mqtt_data3 = "data3";
+const char* send_mqtt_data4 = "data4";
+const char* send_mqtt_data5 = "data5";
+const char* send_mqtt_data6 = "data6";
+const char* send_mqtt_data7 = "data7";
+const char* send_mqtt_data8 = "data8";
+const char* send_mqtt_data9 = "data9";
+const char* send_mqtt_data10 = "data10";
+const char* send_mqtt_data11 = "data11";
+const char* send_mqtt_data12 = "data12";
+const char* send_mqtt_data13 = "data13";
+const char* send_mqtt_data14 = "data14";
+const char* send_mqtt_data15 = "data15";
+const char* send_mqtt_data16 = "data16";
+const char* send_mqtt_data17 = "data17";
+const char* send_mqtt_data18 = "data18";
+const char* send_mqtt_data19 = "data19";
+const char* send_mqtt_data20 = "data20";
+const char* send_mqtt_data21 = "data21";
+const char* send_mqtt_data22 = "data22";
+const char* send_mqtt_data23 = "data23";
+const char* send_mqtt_data24 = "data24";
+const char* send_mqtt_data25 = "data25";
+const char* send_mqtt_data26 = "data26";
+const char* send_mqtt_data27 = "data27";
+const char* send_mqtt_data28 = "data28";
+const char* send_mqtt_data29 = "data29";
+const char* send_mqtt_data30 = "data30";
+const char* send_mqtt_data31 = "data31";
+const char* send_mqtt_data32 = "data32";
+const char* send_mqtt_data33 = "data33";
+const char* send_mqtt_data34 = "data34";
+const char* send_mqtt_data35 = "data35";
+const char* send_mqtt_data36 = "data36";
+const char* send_mqtt_data37 = "data37";
+const char* send_mqtt_data38 = "data38";
+const char* send_mqtt_data39 = "data39";
+const char* send_mqtt_data40 = "data40";
+const char* send_mqtt_data41 = "data41";
+const char* send_mqtt_data42 = "data42";
+const char* send_mqtt_data43 = "data43";
+const char* send_mqtt_data44 = "data44";
+const char* send_mqtt_data45 = "data45";
+const char* send_mqtt_data46 = "data46";
+const char* send_mqtt_data47 = "data47";
+const char* send_mqtt_data48 = "data48";
+const char* send_mqtt_data49 = "data49";
+const char* send_mqtt_data50 = "data50";
+const char* send_mqtt_data51 = "data51";
+const char* send_mqtt_data52 = "data52";
+const char* send_mqtt_data53 = "data53";
+const char* send_mqtt_data54 = "data54";
+const char* send_mqtt_data55 = "data55";
+const char* send_mqtt_data56 = "data56";
+const char* send_mqtt_data57 = "data57";
+const char* send_mqtt_data58 = "data58";
+const char* send_mqtt_data59 = "data59";
+const char* send_mqtt_data60 = "data60";
+const char* send_mqtt_data61 = "data61";
+const char* send_mqtt_data62 = "data62";
+const char* send_mqtt_data63 = "data63";
+const char* send_mqtt_data64 = "data64";
+const char* send_mqtt_data65 = "data65";
+const char* send_mqtt_data66 = "data66";
+const char* send_mqtt_data67 = "data67";
+const char* send_mqtt_data68 = "data68";
+const char* send_mqtt_data69 = "data69";
+const char* send_mqtt_data70 = "data70";
+const char* send_mqtt_data71 = "data71";
+const char* send_mqtt_data72 = "data72";
+const char* send_mqtt_data73 = "data73";
+const char* send_mqtt_data74 = "data74";
+const char* send_mqtt_data75 = "data75";
+const char* send_mqtt_data76 = "data76";
+const char* send_mqtt_data77 = "data77";
+const char* send_mqtt_data78 = "data78";
+const char* send_mqtt_data79 = "data79";
+const char* send_mqtt_data80 = "data80";
+const char* send_mqtt_data81 = "data81";
+const char* send_mqtt_data82 = "data82";
+const char* send_mqtt_data83 = "data83";
+const char* send_mqtt_data84 = "data84";
+const char* send_mqtt_data85 = "data85";
+const char* send_mqtt_data86 = "data86";
+const char* send_mqtt_data87 = "data87";
+const char* send_mqtt_data88 = "data88";
+const char* send_mqtt_data89 = "data89";
+const char* send_mqtt_data90 = "data90";
+const char* send_mqtt_data91 = "data91";
+const char* send_mqtt_data92 = "data92";
+const char* send_mqtt_data93 = "data93";
+const char* send_mqtt_data94 = "data94";
+const char* send_mqtt_data95 = "data95";
+const char* send_mqtt_data96 = "data96";
+const char* send_mqtt_data97 = "data97";
+const char* send_mqtt_data98 = "data98";
+const char* send_mqtt_data99 = "data99";
+const char* send_mqtt_data100 = "data100";
+const char* send_mqtt_data101 = "data101";
+const char* send_mqtt_data102 = "data102";
+const char* send_mqtt_data103 = "data103";
+const char* send_mqtt_data104 = "data104";
+const char* send_mqtt_data105 = "data105";
+const char* send_mqtt_data106 = "data106";
+const char* send_mqtt_data107 = "data107";
+const char* send_mqtt_data108 = "data108";
+const char* send_mqtt_data109 = "data109";
+const char* send_mqtt_data110 = "data110";
+const char* send_mqtt_data111 = "data111";
+const char* send_mqtt_data112 = "data112";
+const char* send_mqtt_data113 = "data113";
+const char* send_mqtt_data114 = "data114";
+const char* send_mqtt_data115 = "data115";
+const char* send_mqtt_data116 = "data116";
+const char* send_mqtt_data117 = "data117";
+const char* send_mqtt_data118 = "data118";
+const char* send_mqtt_data119 = "data119";
+const char* send_mqtt_data120 = "data120";
+const char* send_mqtt_data121 = "data121";
+const char* send_mqtt_data122 = "data122";
+const char* send_mqtt_data123 = "data123";
+const char* send_mqtt_data124 = "data124";
+const char* send_mqtt_data125 = "data125";
+const char* send_mqtt_data126 = "data126";
+const char* send_mqtt_data127 = "data127";
+const char* send_mqtt_data128 = "data128";
+const char* send_mqtt_data129 = "data129";
+const char* send_mqtt_data130 = "data130";
+const char* send_mqtt_data131 = "data131";
+const char* send_mqtt_data132 = "data132";
+const char* send_mqtt_data133 = "data133";
+const char* send_mqtt_data134 = "data134";
+const char* send_mqtt_data135 = "data135";
+const char* send_mqtt_data136 = "data136";
+const char* send_mqtt_data137 = "data137";
+const char* send_mqtt_data138 = "data138";
+const char* send_mqtt_data139 = "data139";
+const char* send_mqtt_data140 = "data140";
+const char* send_mqtt_data141 = "data141";
+const char* send_mqtt_data142 = "data142";
+const char* send_mqtt_data143 = "data143";
+const char* send_mqtt_data144 = "data144";
+const char* send_mqtt_data145 = "data145";
+const char* send_mqtt_data146 = "data146";
+const char* send_mqtt_data147 = "data147";
+const char* send_mqtt_data148 = "data148";
+const char* send_mqtt_data149 = "data149";
+const char* send_mqtt_data150 = "data150";
+const char* send_mqtt_data151 = "data151";
+const char* send_mqtt_data152 = "data152";
+const char* send_mqtt_data153 = "data153";
+const char* send_mqtt_data154 = "data154";
+const char* send_mqtt_data155 = "data155";
+const char* send_mqtt_data156 = "data156";
+const char* send_mqtt_data157 = "data157";
+const char* send_mqtt_data158 = "data158";
+const char* send_mqtt_data159 = "data159";
+const char* send_mqtt_data160 = "data160";
+const char* send_mqtt_data161 = "data161";
+const char* send_mqtt_data162 = "data162";
+const char* send_mqtt_data163 = "data163";
+const char* send_mqtt_data164 = "data164";
+const char* send_mqtt_data165 = "data165";
+const char* send_mqtt_data166 = "data166";
+const char* send_mqtt_data167 = "data167";
+const char* send_mqtt_data168 = "data168";
+const char* send_mqtt_data169 = "data169";
+const char* send_mqtt_data170 = "data170";
+const char* send_mqtt_data171 = "data171";
+const char* send_mqtt_data172 = "data172";
+const char* send_mqtt_data173 = "data173";
+const char* send_mqtt_data174 = "data174";
+const char* send_mqtt_data175 = "data175";
+const char* send_mqtt_data176 = "data176";
+const char* send_mqtt_data177 = "data177";
+const char* send_mqtt_data178 = "data178";
+const char* send_mqtt_data179 = "data179";
+const char* send_mqtt_data180 = "data180";
+const char* send_mqtt_data181 = "data181";
+const char* send_mqtt_data182 = "data182";
+const char* send_mqtt_data183 = "data183";
+const char* send_mqtt_data184 = "data184";
+const char* send_mqtt_data185 = "data185";
+const char* send_mqtt_data186 = "data186";
+const char* send_mqtt_data187 = "data187";
+
+WiFiClientSecure espClient;
+PubSubClient mqttClient(espClient);
+
+// Root CA for secure connection
+static const char* root_ca PROGMEM = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw
+TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh
+cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4
+WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu
+ZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY
+MTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc
+h77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+
+0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U
+A5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW
+T8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH
+B5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC
+B5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv
+KBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn
+OlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn
+jh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw
+qHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI
+rU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV
+HRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq
+hkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL
+ubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ
+3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK
+NFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5
+ORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur
+TkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC
+jNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc
+oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq
+4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA
+mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d
+emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
+-----END CERTIFICATE-----
+)EOF";
+void setup_wifi() {
+  Serial.print("\nConnecting to ");
+  lcd.setCursor(0, 0);
+  lcd.print("Connecting WiFi ");
+  lcd.clear();
+
+  wifiManager.setConfigPortalTimeout(180);
+  if (!wifiManager.startConfigPortal("Trafo-Sense 2", "admin12345")) {
+    delay(500);
+    Serial.print(".");
+    lcd.setCursor(3, 0);
+    lcd.print("No Connection");
+    ESP.restart();
+  }
+
+  Serial.println("WiFi connected");
+  Serial.println(WiFi.localIP());
+  lcd.clear();
+  lcd.setCursor(3, 0);
+  lcd.print("WiFi Connected");
+  delay(1500);
+  lcd.clear();
+}
+void reconnect() {
+  while (!mqttClient.connected()) {
+    Serial.print("Attempting MQTT connection...");
+
+    String clientId = "ESP32Client-";
+    clientId += String(random(0xffff), HEX);
+    if (mqttClient.connect(clientId.c_str(), mqtt_username, mqtt_password)) {
+      Serial.println("connected");
+      lcd.setCursor(4, 2);
+      lcd.print("MQTT CONNECT");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(mqttClient.state());
+      Serial.println(" try again in 5 seconds");
+    }
+  }
+}
+void setup() {
+  Serial.begin(9600);
+  Serial2.begin(9600, SERIAL_8N1, 16, 17);
+
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(4, 0);
+  lcd.print("TRAFO-SENSE2");
+  lcd.setCursor(5, 1);
+  lcd.print("LoRa-BASED");
+  lcd.setCursor(4, 2);
+  lcd.print("MasterDevice");
+  lcd.setCursor(3, 3);
+  lcd.print("MTTE  POLINEMA");
+  delay(1500);
+
+  setup_wifi();
+  espClient.setCACert(root_ca);
+  mqttClient.setServer(mqtt_server, mqtt_port);
+  mqttClient.setCallback(mqttCallback);
+  mqttClient.setKeepAlive(60);
+  if (!rtc.begin()) {
+    Serial.println("Couldn't find RTC");
+    while (1)
+      ;
+  }
+  if (rtc.lostPower()) {
+    //Serial.println("RTC kehilangan daya, mengatur ulang waktu...");
+    rtc.adjust(DateTime(__DATE__, __TIME__));
+  }
+}
+void loop() {
+    unsigned long currentMillis = millis();
+  /*RTC*/
+  DateTime now = rtc.now();
+  lcd.setCursor(6, 0);
+  if (now.hour() < 10) lcd.print("0");
+  lcd.print(now.hour());
+  lcd.print(":");
+
+  if (now.minute() < 10) lcd.print("0");
+  lcd.print(now.minute());
+  lcd.print(":");
+
+  if (now.second() < 10) lcd.print("0");
+  lcd.print(now.second());
+
+
+  if (WiFi.status() != WL_CONNECTED) {
+    if (currentMillis - lastReconnectAttempt >= 5000) {
+      lastReconnectAttempt = currentMillis;
+      Serial.println("WiFi disconnected, trying to reconnect...");
+      WiFi.reconnect();
+    }
+  }
+
+  if (WiFi.status() == WL_CONNECTED && !mqttClient.connected()) {
+    reconnect();
+  }
+
+  mqttClient.loop();
+
+  lcd.setCursor(4, 1);
+  lcd.print("LoRa STANDBY");
+
+  /*Penerimaan Data setiap 4 menit di menit ke 1 via LoRa*/
+  if (now.minute() % 4 == 1) {
+    while (Serial2.available()) {
+      lcd.setCursor(4, 1);
+      lcd.print("LoRa CONNECT");
+      msg = Serial2.readStringUntil('\n');
+      parsing = true;}
+
+      /*Parsing Data*/  
+       if (parsing) {
+      int x = 1;
+      for (int i = 1; i < 94; i++) {
+        data[i] = "";
+        }
+        for (int i = 0; i < msg.length(); i++) {
+        if (msg[i] == '|') {
+          x++;
+          data[x] = "";
+         } else {
+          data[x] += msg[i];
+           }
+         }
+      /*Code Serial Print After Parsing*/
+      Serial.println("Trafo_1");
+      for (int i = 1; i < 94; i++) {
+        Serial.println(data[i]);
+      }
+      Serial.println("Data Trafo 1 Done");
+      lcd.setCursor(4, 3);
+      lcd.print("Trafo 1 Done");
+      parsing = false;
+
+      /*Upload MQTT After Parsing*/
+      mqttClient.publish(send_mqtt_data1, data[1].c_str());
+      mqttClient.publish(send_mqtt_data2, data[2].c_str());
+      mqttClient.publish(send_mqtt_data3, data[3].c_str());
+      mqttClient.publish(send_mqtt_data4, data[4].c_str());
+      mqttClient.publish(send_mqtt_data5, data[5].c_str());
+      mqttClient.publish(send_mqtt_data6, data[6].c_str());
+      mqttClient.publish(send_mqtt_data7, data[7].c_str());
+      mqttClient.publish(send_mqtt_data8, data[8].c_str());
+      mqttClient.publish(send_mqtt_data9, data[9].c_str());
+      mqttClient.publish(send_mqtt_data10, data[10].c_str());
+      mqttClient.publish(send_mqtt_data11, data[11].c_str());
+      mqttClient.publish(send_mqtt_data12, data[12].c_str());
+      mqttClient.publish(send_mqtt_data13, data[13].c_str());
+      mqttClient.publish(send_mqtt_data14, data[14].c_str());
+      mqttClient.publish(send_mqtt_data15, data[15].c_str());
+      mqttClient.publish(send_mqtt_data16, data[16].c_str());
+      mqttClient.publish(send_mqtt_data17, data[17].c_str());
+      mqttClient.publish(send_mqtt_data18, data[18].c_str());
+      mqttClient.publish(send_mqtt_data19, data[19].c_str());
+      mqttClient.publish(send_mqtt_data20, data[20].c_str());
+      mqttClient.publish(send_mqtt_data21, data[21].c_str());
+      mqttClient.publish(send_mqtt_data22, data[22].c_str());
+      mqttClient.publish(send_mqtt_data23, data[23].c_str());
+      mqttClient.publish(send_mqtt_data24, data[24].c_str());
+      mqttClient.publish(send_mqtt_data25, data[25].c_str());
+      mqttClient.publish(send_mqtt_data26, data[26].c_str());
+      mqttClient.publish(send_mqtt_data27, data[27].c_str());
+      mqttClient.publish(send_mqtt_data28, data[28].c_str());
+      mqttClient.publish(send_mqtt_data29, data[29].c_str());
+      mqttClient.publish(send_mqtt_data30, data[30].c_str());
+      mqttClient.publish(send_mqtt_data31, data[31].c_str());
+      mqttClient.publish(send_mqtt_data32, data[32].c_str());
+      mqttClient.publish(send_mqtt_data33, data[33].c_str());
+      mqttClient.publish(send_mqtt_data34, data[34].c_str());
+      mqttClient.publish(send_mqtt_data35, data[35].c_str());
+      mqttClient.publish(send_mqtt_data36, data[36].c_str());
+      mqttClient.publish(send_mqtt_data37, data[37].c_str());
+      mqttClient.publish(send_mqtt_data38, data[38].c_str());
+      mqttClient.publish(send_mqtt_data39, data[39].c_str());
+      mqttClient.publish(send_mqtt_data40, data[40].c_str());
+      mqttClient.publish(send_mqtt_data41, data[41].c_str());
+      mqttClient.publish(send_mqtt_data42, data[42].c_str());
+      mqttClient.publish(send_mqtt_data43, data[43].c_str());
+      mqttClient.publish(send_mqtt_data44, data[44].c_str());
+      mqttClient.publish(send_mqtt_data45, data[45].c_str());
+      mqttClient.publish(send_mqtt_data46, data[46].c_str());
+      mqttClient.publish(send_mqtt_data47, data[47].c_str());
+      mqttClient.publish(send_mqtt_data48, data[48].c_str());
+      mqttClient.publish(send_mqtt_data49, data[49].c_str());
+      mqttClient.publish(send_mqtt_data50, data[50].c_str());
+      mqttClient.publish(send_mqtt_data51, data[51].c_str());
+      mqttClient.publish(send_mqtt_data52, data[52].c_str());
+      mqttClient.publish(send_mqtt_data53, data[53].c_str());
+      mqttClient.publish(send_mqtt_data54, data[54].c_str());
+      mqttClient.publish(send_mqtt_data55, data[55].c_str());
+      mqttClient.publish(send_mqtt_data56, data[56].c_str());
+      mqttClient.publish(send_mqtt_data57, data[57].c_str());
+      mqttClient.publish(send_mqtt_data58, data[58].c_str());
+      mqttClient.publish(send_mqtt_data59, data[59].c_str());
+      mqttClient.publish(send_mqtt_data60, data[60].c_str());
+      mqttClient.publish(send_mqtt_data61, data[61].c_str());
+      mqttClient.publish(send_mqtt_data62, data[62].c_str());
+      mqttClient.publish(send_mqtt_data63, data[63].c_str());
+      mqttClient.publish(send_mqtt_data64, data[64].c_str());
+      mqttClient.publish(send_mqtt_data65, data[65].c_str());
+      mqttClient.publish(send_mqtt_data66, data[66].c_str());
+      mqttClient.publish(send_mqtt_data67, data[67].c_str());
+      mqttClient.publish(send_mqtt_data68, data[68].c_str());
+      mqttClient.publish(send_mqtt_data69, data[69].c_str());
+      mqttClient.publish(send_mqtt_data70, data[70].c_str());
+      mqttClient.publish(send_mqtt_data71, data[71].c_str());
+      mqttClient.publish(send_mqtt_data72, data[72].c_str());
+      mqttClient.publish(send_mqtt_data73, data[73].c_str());
+      mqttClient.publish(send_mqtt_data74, data[74].c_str());
+      mqttClient.publish(send_mqtt_data75, data[75].c_str());
+      mqttClient.publish(send_mqtt_data76, data[76].c_str());
+      mqttClient.publish(send_mqtt_data77, data[77].c_str());
+      mqttClient.publish(send_mqtt_data78, data[78].c_str());
+      mqttClient.publish(send_mqtt_data79, data[79].c_str());
+      mqttClient.publish(send_mqtt_data80, data[80].c_str());
+      mqttClient.publish(send_mqtt_data81, data[81].c_str());
+      mqttClient.publish(send_mqtt_data82, data[82].c_str());
+      mqttClient.publish(send_mqtt_data83, data[83].c_str());
+      mqttClient.publish(send_mqtt_data84, data[84].c_str());
+      mqttClient.publish(send_mqtt_data85, data[85].c_str());
+      mqttClient.publish(send_mqtt_data86, data[86].c_str());
+      mqttClient.publish(send_mqtt_data87, data[87].c_str());
+      mqttClient.publish(send_mqtt_data88, data[88].c_str());
+      mqttClient.publish(send_mqtt_data89, data[89].c_str());
+      mqttClient.publish(send_mqtt_data90, data[90].c_str());
+      mqttClient.publish(send_mqtt_data91, data[91].c_str());
+      mqttClient.publish(send_mqtt_data92, data[92].c_str());
+      mqttClient.publish(send_mqtt_data93, data[93].c_str());
+      
+    }
+  }
+
+    /*Penerimaan Data setiap 4 menit di menit ke 3 via LoRa*/
+  if (now.minute() % 4 == 3) {
+    while (Serial2.available()) {
+      lcd.setCursor(4, 1);
+      lcd.print("LoRa CONNECT");
+      msg2 = Serial2.readStringUntil('\n');
+      parsing = true;
+    }
+
+    /*Parsing Data*/  
+    if (parsing) {
+      int z = 94;
+      for (int y = 94; y < 187; y++) {
+        data[y] = "";
+      }
+      for (int y = 0; y < msg2.length(); y++) {
+        if (msg2[y] == '|') {
+          z++;
+          data[z] = "";
+        } else {
+          data[z] += msg2[y];
+        }
+      }
+      
+      /*Code Serial Print After Parsing*/
+      Serial.println("Trafo_2");
+      for (int y = 94; y < 187; y++) {
+        Serial.println(data[y]);
+      }
+      Serial.println("Data Trafo 2 Done");
+      lcd.setCursor(4, 3);
+      lcd.print("Trafo 2 Done");
+      parsing = false;
+
+      /*Upload MQTT After Parsing*/
+      mqttClient.publish(send_mqtt_data94, data[94].c_str());
+      mqttClient.publish(send_mqtt_data95, data[95].c_str());
+      mqttClient.publish(send_mqtt_data96, data[96].c_str());
+      mqttClient.publish(send_mqtt_data97, data[97].c_str());
+      mqttClient.publish(send_mqtt_data98, data[98].c_str());
+      mqttClient.publish(send_mqtt_data99, data[99].c_str());
+      mqttClient.publish(send_mqtt_data100, data[100].c_str());
+      mqttClient.publish(send_mqtt_data101, data[101].c_str());
+      mqttClient.publish(send_mqtt_data102, data[102].c_str());
+      mqttClient.publish(send_mqtt_data103, data[103].c_str());
+      mqttClient.publish(send_mqtt_data104, data[104].c_str());
+      mqttClient.publish(send_mqtt_data105, data[105].c_str());
+      mqttClient.publish(send_mqtt_data106, data[106].c_str());
+      mqttClient.publish(send_mqtt_data107, data[107].c_str());
+      mqttClient.publish(send_mqtt_data108, data[108].c_str());
+      mqttClient.publish(send_mqtt_data109, data[109].c_str());
+      mqttClient.publish(send_mqtt_data110, data[110].c_str());
+      mqttClient.publish(send_mqtt_data111, data[111].c_str());
+      mqttClient.publish(send_mqtt_data112, data[112].c_str());
+      mqttClient.publish(send_mqtt_data113, data[113].c_str());
+      mqttClient.publish(send_mqtt_data114, data[114].c_str());
+      mqttClient.publish(send_mqtt_data115, data[115].c_str());
+      mqttClient.publish(send_mqtt_data116, data[116].c_str());
+      mqttClient.publish(send_mqtt_data117, data[117].c_str());
+      mqttClient.publish(send_mqtt_data118, data[118].c_str());
+      mqttClient.publish(send_mqtt_data119, data[119].c_str());
+      mqttClient.publish(send_mqtt_data120, data[120].c_str());
+      mqttClient.publish(send_mqtt_data121, data[121].c_str());
+      mqttClient.publish(send_mqtt_data122, data[122].c_str());
+      mqttClient.publish(send_mqtt_data123, data[123].c_str());
+      mqttClient.publish(send_mqtt_data124, data[124].c_str());
+      mqttClient.publish(send_mqtt_data125, data[125].c_str());
+      mqttClient.publish(send_mqtt_data126, data[126].c_str());
+      mqttClient.publish(send_mqtt_data127, data[127].c_str());
+      mqttClient.publish(send_mqtt_data128, data[128].c_str());
+      mqttClient.publish(send_mqtt_data129, data[129].c_str());
+      mqttClient.publish(send_mqtt_data130, data[130].c_str());
+      mqttClient.publish(send_mqtt_data131, data[131].c_str());
+      mqttClient.publish(send_mqtt_data132, data[132].c_str());
+      mqttClient.publish(send_mqtt_data133, data[133].c_str());
+      mqttClient.publish(send_mqtt_data134, data[134].c_str());
+      mqttClient.publish(send_mqtt_data135, data[135].c_str());
+      mqttClient.publish(send_mqtt_data136, data[136].c_str());
+      mqttClient.publish(send_mqtt_data137, data[137].c_str());
+      mqttClient.publish(send_mqtt_data138, data[138].c_str());
+      mqttClient.publish(send_mqtt_data139, data[139].c_str());
+      mqttClient.publish(send_mqtt_data140, data[140].c_str());
+      mqttClient.publish(send_mqtt_data141, data[141].c_str());
+      mqttClient.publish(send_mqtt_data142, data[142].c_str());
+      mqttClient.publish(send_mqtt_data143, data[143].c_str());
+      mqttClient.publish(send_mqtt_data144, data[144].c_str());
+      mqttClient.publish(send_mqtt_data145, data[145].c_str());
+      mqttClient.publish(send_mqtt_data146, data[146].c_str());
+      mqttClient.publish(send_mqtt_data147, data[147].c_str());
+      mqttClient.publish(send_mqtt_data148, data[148].c_str());
+      mqttClient.publish(send_mqtt_data149, data[149].c_str());
+      mqttClient.publish(send_mqtt_data150, data[150].c_str());
+      mqttClient.publish(send_mqtt_data151, data[151].c_str());
+      mqttClient.publish(send_mqtt_data152, data[152].c_str());
+      mqttClient.publish(send_mqtt_data153, data[153].c_str());
+      mqttClient.publish(send_mqtt_data154, data[154].c_str());
+      mqttClient.publish(send_mqtt_data155, data[155].c_str());
+      mqttClient.publish(send_mqtt_data156, data[156].c_str());
+      mqttClient.publish(send_mqtt_data157, data[157].c_str());
+      mqttClient.publish(send_mqtt_data158, data[158].c_str());
+      mqttClient.publish(send_mqtt_data159, data[159].c_str());
+      mqttClient.publish(send_mqtt_data160, data[160].c_str());
+      mqttClient.publish(send_mqtt_data161, data[161].c_str());
+      mqttClient.publish(send_mqtt_data162, data[162].c_str());
+      mqttClient.publish(send_mqtt_data163, data[163].c_str());
+      mqttClient.publish(send_mqtt_data164, data[164].c_str());
+      mqttClient.publish(send_mqtt_data165, data[165].c_str());
+      mqttClient.publish(send_mqtt_data166, data[166].c_str());
+      mqttClient.publish(send_mqtt_data167, data[167].c_str());
+      mqttClient.publish(send_mqtt_data168, data[168].c_str());
+      mqttClient.publish(send_mqtt_data169, data[169].c_str());
+      mqttClient.publish(send_mqtt_data170, data[170].c_str());
+      mqttClient.publish(send_mqtt_data171, data[171].c_str());
+      mqttClient.publish(send_mqtt_data172, data[172].c_str());
+      mqttClient.publish(send_mqtt_data173, data[173].c_str());
+      mqttClient.publish(send_mqtt_data174, data[174].c_str());
+      mqttClient.publish(send_mqtt_data175, data[175].c_str());
+      mqttClient.publish(send_mqtt_data176, data[176].c_str());
+      mqttClient.publish(send_mqtt_data177, data[177].c_str());
+      mqttClient.publish(send_mqtt_data178, data[178].c_str());
+      mqttClient.publish(send_mqtt_data179, data[179].c_str());
+      mqttClient.publish(send_mqtt_data180, data[180].c_str());
+      mqttClient.publish(send_mqtt_data181, data[181].c_str());
+      mqttClient.publish(send_mqtt_data182, data[182].c_str());
+      mqttClient.publish(send_mqtt_data183, data[183].c_str());
+      mqttClient.publish(send_mqtt_data184, data[184].c_str());
+      mqttClient.publish(send_mqtt_data185, data[185].c_str());
+      mqttClient.publish(send_mqtt_data186, data[186].c_str());
+      mqttClient.publish(send_mqtt_data186, data[187].c_str());
+    }
+  }
+}
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+}
